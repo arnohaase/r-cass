@@ -21,15 +21,14 @@ fn seek() {
     let path = PATH_HUGE;
     println!("\nseeking {}", path);
 
-    do_timed("file", || seek_file(path));
-    do_timed("file", || seek_file(path));
-    do_timed("mapped", || seek_mapped(path));
-    do_timed("mapped", || seek_mapped(path));
+    do_timed("file 1", || seek_file(path, 1));
+    do_timed("mapped 1", || seek_mapped(path, 1));
 
-    do_timed("file", || seek_file(path));
-    do_timed("file", || seek_file(path));
-    do_timed("mapped", || seek_mapped(path));
-    do_timed("mapped", || seek_mapped(path));
+    do_timed("file 3", || seek_file(path, 3));
+    do_timed("mapped 3", || seek_mapped(path, 3));
+
+    do_timed("file 20", || seek_file(path, 20));
+    do_timed("mapped 20", || seek_mapped(path, 20));
 }
 
 fn do_timed<F>(text: &str, f: F) where F: FnOnce() -> Result<u8> {
@@ -61,32 +60,37 @@ fn read() {
     do_timed("mapped", || read_tuned(PATH_HUGE));
 }
 
-fn seek_file(path: &str) -> Result<u8> {
+fn seek_file(path: &str, num_iter: usize) -> Result<u8> {
     let mut result = 0u8;
 
     let mut buf = [0u8; 65536];
 
     let mut f = File::open(path)?;
-    f.seek(SeekFrom::Start(OFFSET as u64));
-    f.read_exact(&mut buf)?;
-    for idx in 0..buf.len() {
-        if buf[idx] == 3 || buf[idx] > 250 {
-            result = result.wrapping_add(buf[idx]);
+
+    for n in 0..num_iter {
+        f.seek(SeekFrom::Start(OFFSET as u64));
+        f.read_exact(&mut buf)?;
+        for idx in (0..buf.len()).step_by(1000) {
+            if buf[idx] == 3 || buf[idx] > 250 {
+                result = result.wrapping_add(buf[idx]);
+            }
         }
     }
 
     Ok(result)
 }
 
-fn seek_mapped(path: &str) -> Result<u8> {
+fn seek_mapped(path: &str, num_iter: usize) -> Result<u8> {
     let f = File::open(path)?;
     let m = unsafe { MmapOptions::new().map(&f)? };
 
     let mut result = 0u8;
 
-    for idx in OFFSET..OFFSET+65536 {
-        if m[idx] == 3 || m[idx] > 250 {
-            result = result.wrapping_add(m[idx]);
+    for n in 0..num_iter {
+        for idx in (OFFSET..OFFSET+65536).step_by(1000) {
+            if m[idx] == 3 || m[idx] > 250 {
+                result = result.wrapping_add(m[idx]);
+            }
         }
     }
 
