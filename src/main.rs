@@ -21,14 +21,37 @@ fn seek() {
     let path = PATH_HUGE;
     println!("\nseeking {}", path);
 
-    do_timed("file 1", || seek_file(path, 1));
-    do_timed("mapped 1", || seek_mapped(path, 1));
+    let buf = [0u8; 65536];
+    do_timed("loop", || {
+        let mut result = 0u8;
+        for idx in (0..65536).step_by(1000) {
+            result = result.wrapping_add(buf[idx]);
+        }
+        Ok(result)
+    });
 
-    do_timed("file 3", || seek_file(path, 3));
-    do_timed("mapped 3", || seek_mapped(path, 3));
+    do_timed("file     1", || seek_file(path, 1));
+    do_timed("mapped   1", || seek_mapped(path, 1));
+    do_timed("file     1", || seek_file(path, 1));
+    do_timed("mapped   1", || seek_mapped(path, 1));
+    do_timed("file     1", || seek_file(path, 1));
+    do_timed("mapped   1", || seek_mapped(path, 1));
 
-    do_timed("file 20", || seek_file(path, 20));
-    do_timed("mapped 20", || seek_mapped(path, 20));
+    do_timed("file     3", || seek_file(path, 3));
+    do_timed("mapped   3", || seek_mapped(path, 3));
+    do_timed("file     3", || seek_file(path, 3));
+    do_timed("mapped   3", || seek_mapped(path, 3));
+
+    do_timed("file    10", || seek_file(path, 10));
+    do_timed("mapped  10", || seek_mapped(path, 20));
+    do_timed("file    10", || seek_file(path, 10));
+    do_timed("mapped  10", || seek_mapped(path, 20));
+
+    do_timed("file    20", || seek_file(path, 20));
+    do_timed("mapped  20", || seek_mapped(path, 20));
+
+    do_timed("file   100", || seek_file(path, 100));
+    do_timed("mapped 100", || seek_mapped(path, 100));
 }
 
 fn do_timed<F>(text: &str, f: F) where F: FnOnce() -> Result<u8> {
@@ -71,9 +94,7 @@ fn seek_file(path: &str, num_iter: usize) -> Result<u8> {
         f.seek(SeekFrom::Start(OFFSET as u64));
         f.read_exact(&mut buf)?;
         for idx in (0..buf.len()).step_by(1000) {
-            if buf[idx] == 3 || buf[idx] > 250 {
-                result = result.wrapping_add(buf[idx]);
-            }
+            result = result.wrapping_add(buf[idx]);
         }
     }
 
@@ -88,9 +109,7 @@ fn seek_mapped(path: &str, num_iter: usize) -> Result<u8> {
 
     for n in 0..num_iter {
         for idx in (OFFSET..OFFSET+65536).step_by(1000) {
-            if m[idx] == 3 || m[idx] > 250 {
-                result = result.wrapping_add(m[idx]);
-            }
+            result = result.wrapping_add(m[idx]);
         }
     }
 
