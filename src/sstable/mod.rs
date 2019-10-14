@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::db::{TableMetaData, TableRow, RowDetails, TableCell, TableCellData, ColumnMetaData, ColumnType, RowTombstoneData, RegularRowData};
+use crate::db::{TableMetaData, TableRow, RowDetails, TableCell, TableCellData, ColumnMetaData, ColumnType, RowTombstoneData, RegularRowData, KeyBound};
 use std::fs::{File, OpenOptions};
 use std::io::{Write, BufWriter};
 use uuid::Uuid;
@@ -44,45 +44,68 @@ struct SstableReader<'a> {
 impl <'a> SstableReader<'a> {
 
 
-    fn read_row(&mut self) -> () { //TableRow<'a> {
+    fn read_row(&mut self) -> TableRow<'a> {
         let partition_key_def = self.meta_data.table_metadata.partition_key();
-        let partition_key_cell = self.read_table_cell_data_regular(partition_key_def);
+        let partition_key = self.read_table_cell_data_regular(partition_key_def);
+
+        let table_metadata = self.meta_data.table_metadata.clone();
 
         match self.buf.read_u8() {
             ID_ROW_TOMBSTONE => {
 
+                let row_details = RowDetails::RowTombstone(RowTombstoneData {
+                    lower_bound: self.read_key_bound(),
+                    upper_bound: self.read_key_bound(),
+                });
+
+                TableRow::new(table_metadata, partition_key, row_details)
             },
             ID_ROW_REGULAR => {
                 let pk_expiry = self.buf.read_db_expiry_timestamp();
                 let mut cluster_key = Vec::new();
-                let table_metadata = self.meta_data.table_metadata.clone();
                 for idx in table_metadata.idx_cluster_keys.iter() {
                     let key_col_meta = &table_metadata.columns.get(*idx).unwrap().clone();
                     let key_cell = self.read_table_cell_data_regular(key_col_meta.clone());
                     cluster_key.push(key_cell);
                 }
 
-                let mut regular_cols = Vec::new(); //TODO
+                let mut regular_cols = Vec::new();
 
                 let num_regular_cols = self.buf.read_u32();
                 for _ in 0..num_regular_cols {
                     regular_cols.push(self.read_table_cell());
                 }
 
-                let row_data = RegularRowData {
+                let row_details = RowDetails::Regular(RegularRowData {
                     pk_expiry,
                     cluster_key,
                     regular_cols,
-                };
-                let row_details = RowDetails::Regular(row_data);
+                });
 
-                let asdf = TableRow::new(table_metadata, partition_key_cell, row_details);
-                //TODO
-                ()
+                TableRow::new(table_metadata, partition_key, row_details)
             },
             n => panic!("invalid row ID"),
         }
+    }
 
+    fn read_key_bound(&mut self) -> Option<KeyBound<'a>> {
+        let is_inclusive = match self.buf.read_u8() {
+            ID_KEY_BOUND_NONE => return None,
+            ID_KEY_BOUND_INCLUSIVE => true,
+            ID_KEY_BOUND_EXCLUSIVE => false,
+            n => panic!("invalid id"), //TODO error reporting
+        };
+
+        let mut cluster_key_prefix = Vec::new();
+        let num_cluster_key_cols = self.buf.read_u8();
+        for idx in 0..num_cluster_key_cols {
+            cluster_key_prefix.push(self.read_table_cell_data(self.meta_data.table_metadata.cluster_key(idx as usize)))
+        }
+
+        Some(KeyBound {
+            cluster_key_prefix,
+            is_inclusive
+        })
     }
 
     fn read_table_cell(&mut self) -> TableCell<'a> {
@@ -203,7 +226,7 @@ impl SstableCreator {
                     self.data_out.write_u8(key_bound.cluster_key_prefix.len() as u8); //TODO enforce max 255 columns in cluster key
 
                     for cell in &key_bound.cluster_key_prefix {
-                        self.write_cell_data(&cell.data, true);
+                        self.write_cell_data(&cell, true);
                     }
                 }
             }

@@ -149,10 +149,6 @@ impl<'a> CassRead<'a> {
     pub fn read_uuid(&mut self) -> Uuid {
         let slice = self.read_slice(16);
         let bytes: &[u8;16] = slice.try_into().unwrap();
-
-//        let bytes: &[u8;16] = unsafe { transmute (ptr)};
-
-//        let bytes: [u8;16] = unsafe { transmute (self.read_slice(16)) };
         Uuid::from_bytes(*bytes)
     }
 

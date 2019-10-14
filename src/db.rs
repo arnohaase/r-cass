@@ -43,7 +43,7 @@ pub struct RegularRowData<'a> {
 }
 
 pub struct KeyBound<'a> {
-    pub cluster_key_prefix: Vec<TableCell<'a>>,
+    pub cluster_key_prefix: Vec<TableCellData<'a>>,
     pub is_inclusive: bool,
 }
 
@@ -123,7 +123,11 @@ impl TableMetaData {
         self.columns.get(self.idx_partition_key).unwrap().clone()
     }
 
-    pub fn column_by_id(&self, col_id: &Uuid) -> &Arc<ColumnMetaData> {
-        self.columns_by_id.get(col_id).unwrap() //TODO error reporting
+    pub fn cluster_key(&self, idx: usize) -> Arc<ColumnMetaData> {
+        self.columns.get(idx+1).unwrap().clone()
+    }
+
+    pub fn column_by_id(&self, col_id: &Uuid) -> Arc<ColumnMetaData> {
+        self.columns_by_id.get(col_id).unwrap().clone() //TODO error reporting
     }
 }
