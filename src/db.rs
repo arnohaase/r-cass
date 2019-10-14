@@ -5,6 +5,7 @@ use std::io::{Write, Read, ErrorKind};
 
 use uuid::*;
 use crate::util::*;
+use std::collections::HashMap;
 
 
 /// a (sparse) in-memory representation of a row's data, i.e. primary keys (partition and
@@ -12,8 +13,19 @@ use crate::util::*;
 pub struct TableRow<'a> {
     meta_data: Arc<TableMetaData>,
 
-    pub partition_key: TableCell<'a>,
+    pub partition_key: TableCellData<'a>,
     pub details: RowDetails<'a>,
+}
+
+impl TableRow<'_> {
+    pub fn new<'a> (meta_data: Arc<TableMetaData>, partition_key: TableCellData<'a>, details: RowDetails<'a>) -> TableRow<'a> {
+
+        TableRow {
+            meta_data,
+            partition_key,
+            details
+        }
+    }
 }
 
 //#[derive(Debug)]
@@ -26,7 +38,7 @@ pub struct RegularRowData<'a> {
     pub pk_expiry: DbExpiryTimestamp,
 
     /// must be complete and in *key definition order*
-    pub cluster_key: Vec<TableCell<'a>>,
+    pub cluster_key: Vec<TableCellData<'a>>,
     pub regular_cols: Vec<TableCell<'a>>,
 }
 
@@ -43,53 +55,6 @@ pub struct RowTombstoneData<'a> {
 pub enum RowDetails<'a> {
     Regular (RegularRowData<'a>),
     RowTombstone (RowTombstoneData<'a>),
-}
-
-impl TableRow<'_> {
-
-//    fn add_col(&self, col_idx: usize, vec: &mut Vec<u8>) -> Result<(), KindOfMissing> {
-//        let col_meta: &ColumnMetaData = &self.meta_data.columns[col_idx];
-//
-//        //TODO make ColumnMetaData implement Ord
-//        let cell_idx = match self.data.binary_search_by(|cell| cell.meta_data.name.cmp(&col_meta.name)) {
-//            Ok(idx) => idx,
-//            Err(_) => return Err(KindOfMissing::NoSuchColumn)
-//        };
-//
-//        match &self.data[cell_idx].data {
-//            TableCellData::Data(d) => {
-//                vec.extend_from_slice(d);
-//                Ok(())
-//            },
-//            TableCellData::Tombstone => Err(KindOfMissing::Tombstone)
-//        }
-//    }
-//
-//    pub fn partition_key(&self) -> Vec<u8> {
-//        let mut v = Vec::new();
-//
-//        match &self.meta_data.partition_keys {
-//            PartitionKeys::Single(col_idx) => {
-//                self.add_col(*col_idx, &mut v).unwrap();
-//            },
-//            PartitionKeys::Multi(idxs) => {
-//                for col_idx in idxs {
-//                    self.add_col(*col_idx, &mut v).unwrap();
-//                }
-//            }
-//        }
-//        v
-//    }
-//
-//    pub fn primary_key(&self) -> Vec<u8> {
-//        let mut v = self.partition_key();
-//
-//        for col_idx in &self.meta_data.cluster_keys {
-//            self.add_col(*col_idx, &mut v).unwrap(); //TODO do we require all primary key columns to be present all the time?
-//        }
-//
-//        v
-//    }
 }
 
 pub struct TableCell<'a> {
@@ -132,7 +97,33 @@ pub type ClusterKeys = Vec<usize>;
 pub struct TableMetaData {
     pub name: String,
     pub id: Uuid,
-    columns: Vec<ColumnMetaData>, // sorted by name
-    partition_key: usize,
-    cluster_keys: ClusterKeys
+    pub columns: Vec<Arc<ColumnMetaData>>, // sorted by name
+    pub idx_partition_key: usize,
+    pub idx_cluster_keys: ClusterKeys,
+    columns_by_id: HashMap<Uuid, Arc<ColumnMetaData>>,
+}
+impl TableMetaData {
+    pub fn new(name: String, id: Uuid, columns: Vec<Arc<ColumnMetaData>>, idx_partition_key: usize, idx_cluster_keys: ClusterKeys) -> TableMetaData {
+        let mut columns_by_id = HashMap::new();
+        for col in columns.iter() {
+            columns_by_id.insert(col.id, col.clone());
+        }
+
+        TableMetaData {
+            name,
+            id,
+            columns,
+            idx_partition_key,
+            idx_cluster_keys,
+            columns_by_id
+        }
+    }
+
+    pub fn partition_key(&self) -> Arc<ColumnMetaData> {
+        self.columns.get(self.idx_partition_key).unwrap().clone()
+    }
+
+    pub fn column_by_id(&self, col_id: &Uuid) -> &Arc<ColumnMetaData> {
+        self.columns_by_id.get(col_id).unwrap() //TODO error reporting
+    }
 }

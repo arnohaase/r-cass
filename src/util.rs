@@ -1,6 +1,5 @@
 use std::io::ErrorKind;
 
-
 /// timestamps are nanos since EPOCH
 pub type DbTimestamp = u64;
 
