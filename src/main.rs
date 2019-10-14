@@ -4,7 +4,10 @@ use std::time::SystemTime;
 use memmap::MmapOptions;
 
 mod db;
+mod io;
 mod util;
+
+mod sstable;
 
 const PATH_HUGE: &str = "/home/arno/tmp/huge-file";
 const PATH_MEDIUM: &str = "/home/arno/tmp/medium-file";
