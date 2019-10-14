@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::mem::size_of;
-use crate::util::other_error;
+use crate::util::*;
+use uuid::Uuid;
 
 
 macro_rules! writer {
@@ -23,8 +24,28 @@ pub struct CassWrite<W> where W: Write {
 }
 
 impl<W> CassWrite<W> where W: Write {
+    pub fn new(out: W) -> CassWrite<W> {
+        CassWrite { out }
+    }
+
     writer!(u8, write_u8, 0);
+    writer!(u16, write_u16, 8, 0);
     writer!(u32, write_u32, 24, 16, 8, 0);
+    writer!(u64, write_u64, 56, 48, 40, 32, 24, 16, 8, 0);
+
+    #[inline]
+    pub fn write_uuid(&mut self, value: &Uuid) -> std::io::Result<()> {
+        self.write_raw(value.as_bytes())
+    }
+
+    #[inline]
+    pub fn write_db_timestamp(&mut self, value: DbTimestamp) -> std::io::Result<()> {
+        self.write_u64(value)
+    }
+    #[inline]
+    pub fn write_db_expiry_timestamp(&mut self, value: DbExpiryTimestamp) -> std::io::Result<()> {
+        self.write_u32(value)
+    }
 
     #[inline]
     pub fn write_bool(&mut self, value: bool) -> std::io::Result<()> {
@@ -44,6 +65,10 @@ impl<W> CassWrite<W> where W: Write {
         self.write_u32(len as u32)?;
         self.out.write_all(value.as_bytes())?;
         Ok(())
+    }
+
+    pub fn write_raw(&mut self, value: &[u8]) -> std::io::Result<()> {
+        self.out.write_all(value)
     }
 
     pub fn flush(&mut self) -> std::io::Result<()> {

@@ -4,43 +4,40 @@ use std::sync::Arc;
 use std::io::{Write, Read, ErrorKind};
 
 use uuid::*;
-use crate::util::other_error;
-
-/// timestamps are nanos since EPOCH
-type DbTimestamp = u64;
-
-/// expiry timestamps are seconds since EPOCH (u32 means overflow end of 21st century - enough for now)
-type DbExpiryTimestamp = u32;
+use crate::util::*;
 
 
 /// a (sparse) in-memory representation of a row's data, i.e. primary keys (partition and
 ///  cluster) and corresponding column data.
 pub struct TableRow<'a> {
     meta_data: Arc<TableMetaData>,
-    pub partition_key: Vec<TableCell<'a>>,
+
+    pub partition_key: TableCell<'a>,
     pub details: RowDetails<'a>,
 }
 
-#[derive(Debug)]
-enum KindOfMissing {
-    NoSuchColumn,
-    Tombstone,
-}
+//#[derive(Debug)]
+//enum KindOfMissing {
+//    NoSuchColumn,
+//    Tombstone,
+//}
 
 pub struct RegularRowData<'a> {
-    pk_expiry: DbExpiryTimestamp,
-    cluster_key: Vec<TableCell<'a>>,
-    regular_cols: Vec<TableCell<'a>>,
+    pub pk_expiry: DbExpiryTimestamp,
+
+    /// must be complete and in *key definition order*
+    pub cluster_key: Vec<TableCell<'a>>,
+    pub regular_cols: Vec<TableCell<'a>>,
 }
 
 pub struct KeyBound<'a> {
-    cluster_key_prefix: Vec<TableCell<'a>>,
-    is_inclusive: bool,
+    pub cluster_key_prefix: Vec<TableCell<'a>>,
+    pub is_inclusive: bool,
 }
 
 pub struct RowTombstoneData<'a> {
-    lower_bound: Option<KeyBound<'a>>,
-    upper_bound: Option<KeyBound<'a>>,
+    pub lower_bound: Option<KeyBound<'a>>,
+    pub upper_bound: Option<KeyBound<'a>>,
 }
 
 pub enum RowDetails<'a> {
@@ -96,22 +93,22 @@ impl TableRow<'_> {
 }
 
 pub struct TableCell<'a> {
-    meta_data: Arc<ColumnMetaData>,
-    timestamp: DbTimestamp,
-    expiry: DbExpiryTimestamp,
-    data: TableCellData<'a>,
+    pub meta_data: Arc<ColumnMetaData>,
+    pub timestamp: DbTimestamp,
+    pub expiry: DbExpiryTimestamp,
+    pub data: TableCellData<'a>,
 }
 
 pub enum TableCellData<'a> {
     Tombstone,
-    Data(&'a[u8])
+    Regular(&'a[u8])
 }
 
 pub struct ColumnMetaData {
-    name: String,
-    id: Uuid,
-    key_type: ColumnKeyType,
-    col_type: ColumnType,
+    pub name: String,
+    pub id: Uuid,
+    pub key_type: ColumnKeyType,
+    pub col_type: ColumnType,
 }
 
 pub enum ColumnKeyType {
@@ -129,28 +126,6 @@ pub enum ColumnType {
     Boolean,
     Tuple(Vec<ColumnType>),
 }
-
-//impl ColumnType {
-    /// number of bytes that this columns value takes in a buffer at a given offset
-//    fn num_bytes<R>(&self, r: &mut R, offs: usize) -> usize where R: Read {
-//        use ColumnType::*;
-//        match self {
-//            Text => 99, //TODO util::deser_u32(buf, offs) as usize, // text is encoded with a leading 32 bit number for the actual string's length in bytes
-//            Uuid => 16,
-//            Int => 4,
-//            Long => 8,
-//            Timestamp => 8,
-//            Boolean => 1,
-//            Tuple(parts) => {
-//                let mut result = 0;
-//                for part in parts {
-//                    result += part.num_bytes(r, offs + result);
-//                }
-//                result
-//            }
-//        }
-//    }
-//}
 
 pub type ClusterKeys = Vec<usize>;
 
