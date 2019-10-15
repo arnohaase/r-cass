@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::db::{TableMetaData, TableRow, RowDetails, TableCell, TableCellData, ColumnMetaData, ColumnType, RowTombstoneData, RegularRowData, KeyBound};
 use std::fs::{File, OpenOptions};
 use std::io::{Write, BufWriter};
-use uuid::Uuid;
+use uuid::*;
 use crate::io::{CassWrite, CassRead};
 use std::sync::Arc;
 use crate::util::DbTimestamp;
@@ -25,7 +25,7 @@ const ID_CELL_DATA_REGULAR: u8 = 1;
 struct SstableMetaData {
     pub table_metadata: Arc<TableMetaData>,
     sstable_uuid: Uuid,
-    folder: Box<Path>,
+    folder: Box<PathBuf>,
 }
 impl SstableMetaData {
     pub fn data_filename(&self) -> PathBuf {
@@ -42,7 +42,9 @@ struct SstableReader<'a> {
 }
 
 impl <'a> SstableReader<'a> {
-
+    fn new(meta_data: SstableMetaData, buf: CassRead) -> SstableReader {
+        SstableReader { meta_data, buf }
+    }
 
     fn read_row(&mut self) -> TableRow<'a> {
         let partition_key_def = self.meta_data.table_metadata.partition_key();
@@ -52,7 +54,6 @@ impl <'a> SstableReader<'a> {
 
         match self.buf.read_u8() {
             ID_ROW_TOMBSTONE => {
-
                 let row_details = RowDetails::RowTombstone(RowTombstoneData {
                     lower_bound: self.read_key_bound(),
                     upper_bound: self.read_key_bound(),
@@ -84,7 +85,7 @@ impl <'a> SstableReader<'a> {
 
                 TableRow::new(table_metadata, partition_key, row_details)
             },
-            n => panic!("invalid row ID"),
+            n => panic!("invalid row kind ID: {}", n),
         }
     }
 
@@ -93,7 +94,7 @@ impl <'a> SstableReader<'a> {
             ID_KEY_BOUND_NONE => return None,
             ID_KEY_BOUND_INCLUSIVE => true,
             ID_KEY_BOUND_EXCLUSIVE => false,
-            n => panic!("invalid id"), //TODO error reporting
+            n => panic!("invalid key bound id: {}", n),
         };
 
         let mut cluster_key_prefix = Vec::new();
@@ -128,7 +129,7 @@ impl <'a> SstableReader<'a> {
         match self.buf.read_u8() {
             ID_CELL_DATA_TOMBSTONE => TableCellData::Tombstone,
             ID_CELL_DATA_REGULAR => self.read_table_cell_data_regular(column_meta_data),
-            n => panic!("invalid id")
+            n => panic!("invalid cell data id: {}", n)
         }
     }
 
@@ -168,6 +169,7 @@ struct SstableCreator {
 impl SstableCreator {
     pub fn new(meta_data: SstableMetaData) -> std::io::Result<SstableCreator> {
         let data_file = OpenOptions::new()
+            .write(true)
             .create_new(true)
             .open(meta_data.data_filename())?;
 
@@ -179,8 +181,9 @@ impl SstableCreator {
         })
     }
 
-    /// no shadowing inside a single sstable
-    pub fn add_row(&mut self, row: &TableRow) -> std::io::Result<()> {
+    /// no shadowing inside a single sstable, i.e. callers must e.g. split range tombstones
+    ///  if a row is added inside the range
+    pub fn append_row(&mut self, row: &TableRow) -> std::io::Result<()> {
         //TODO write index (incl. oldest / youngest timestamp)
         //TODO write bloom filter
 
@@ -258,7 +261,8 @@ impl SstableCreator {
     }
 
     fn finalize(mut self) -> std::io::Result<()>{
-        self.data_out.flush()?;
+        let mut data_file = self.data_out.into_inner();
+        data_file.flush()?;
 
         Ok(()) //TODO return type?
 
@@ -268,3 +272,116 @@ impl SstableCreator {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use crate::sstable::{SstableMetaData, SstableCreator, SstableReader};
+    use crate::db::{TableMetaData, ColumnMetaData, ColumnType, TableRow, TableCellData, RowDetails, RegularRowData, TableCell};
+    use uuid::Uuid;
+    use std::sync::Arc;
+    use std::path::{Path, PathBuf};
+    use std::io::Cursor;
+    use crate::io::{CassWrite, CassRead};
+    use std::fs::File;
+    use memmap::MmapOptions;
+
+    fn sstable_metadata() -> SstableMetaData {
+        let col_partition_key = ColumnMetaData {
+            name: "id".to_string(),
+            id: Uuid::new_v4(),
+            col_type: ColumnType::Long,
+        };
+        let col_name = ColumnMetaData {
+            name: "name".to_string(),
+            id: Uuid::new_v4(),
+            col_type: ColumnType::Text,
+        };
+
+        let columns = vec!(
+            Arc::new(col_partition_key),
+            Arc::new(col_name),
+        );
+
+        let table_metadata =
+            TableMetaData::new("person".to_string(), Uuid::new_v4(), columns, 0, Vec::new());
+
+        SstableMetaData {
+            table_metadata: Arc::new(table_metadata),
+            sstable_uuid: Uuid::new_v4(),
+            folder: Box::new(std::env::temp_dir())
+        }
+    }
+
+    fn ser_utf8(s: &str) -> Vec<u8> {
+        let mut w = CassWrite::new(Cursor::new(Vec::new()));
+        w.write_utf8(s);
+        w.into_inner().into_inner()
+    }
+    fn ser_u64(n: u64) -> Vec<u8> {
+        let mut w = CassWrite::new(Cursor::new(Vec::new()));
+        w.write_u64(n);
+        w.into_inner().into_inner()
+    }
+
+
+    #[test]
+    pub fn test_write_read() {
+        let meta_data = sstable_metadata();
+        let table_metadata = meta_data.table_metadata.clone();
+
+        let mut creator = SstableCreator::new(meta_data.clone()).unwrap();
+
+        let id_buf = ser_u64(99);
+        let name_buf = ser_utf8("Arno");
+
+        let id_cell = TableCellData::Regular(&id_buf);
+        let name_cell = TableCell {
+            meta_data: table_metadata.columns.get(0).unwrap().clone(),
+            timestamp: 8888,
+            expiry: 7777,
+            data: TableCellData::Regular(&name_buf),
+        };
+
+        let row = TableRow::new(
+            table_metadata.clone(),
+            id_cell,
+            RowDetails::Regular(RegularRowData {
+                pk_expiry: 9999u32,
+                cluster_key: Vec::new(),
+                regular_cols: vec!(name_cell),
+            })
+        );
+
+        creator.append_row(&row);
+        creator.finalize();
+        println!("data file: {:?}", meta_data.data_filename());
+
+        let f = File::open(meta_data.data_filename()).unwrap();
+        let m = unsafe { MmapOptions::new().map(&f).unwrap() };
+
+        let mut reader = SstableReader::new(meta_data, CassRead::wrap(&m));
+        let read_row = reader.read_row();
+
+        match read_row.partition_key {
+            TableCellData::Regular(buf) => assert_eq!(*buf, *id_buf),
+            _ => assert!(false)
+        }
+
+        match read_row.details {
+            RowDetails::Regular(row_data) => {
+                assert_eq!(9999, row_data.pk_expiry);
+                assert!(row_data.cluster_key.is_empty());
+                assert_eq!(1, row_data.regular_cols.len());
+
+                let col = row_data.regular_cols.get(0).unwrap();
+                assert_eq!(8888, col.timestamp);
+                assert_eq!(7777, col.expiry);
+                match col.data {
+                    TableCellData::Regular(buf) => assert_eq!(*buf, *name_buf),
+                    _ => assert!(false)
+                }
+            },
+            _ => assert!(false)
+        }
+    }
+}

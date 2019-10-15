@@ -73,8 +73,8 @@ impl<W> CassWrite<W> where W: Write {
         self.out.write_all(value)
     }
 
-    pub fn flush(&mut self) -> std::io::Result<()> {
-        self.out.flush()
+    pub fn into_inner(mut self) -> W {
+        self.out
     }
 }
 
@@ -93,7 +93,7 @@ impl<'a> CassRead<'a> {
 
     #[inline]
     pub fn read_slice(&mut self, size: usize) -> &'a[u8] {
-        let result = &self.buf[..size];
+        let result = &self.buf[self.pos..self.pos+size];
         self.pos += size;
         result
     }
@@ -115,10 +115,10 @@ impl<'a> CassRead<'a> {
     }
     #[inline]
     pub fn peek_u32_offs(&self, offs: usize) -> u32 {
-        (self.buf[self.pos+offs]   as u32) << 24 +
-        (self.buf[self.pos+offs+1] as u32) << 16 +
-        (self.buf[self.pos+offs+2] as u32) <<  8 +
-        (self.buf[self.pos+offs+3] as u32)
+        ((self.buf[self.pos+offs]   as u32) << 24) +
+        ((self.buf[self.pos+offs+1] as u32) << 16) +
+        ((self.buf[self.pos+offs+2] as u32) <<  8) +
+         (self.buf[self.pos+offs+3] as u32)
     }
     #[inline]
     pub fn read_u32(&mut self) -> u32 {
@@ -129,14 +129,14 @@ impl<'a> CassRead<'a> {
 
     #[inline]
     pub fn peek_u64(&self) -> u64 {
-        (self.buf[self.pos]   as u64) << 56 +
-        (self.buf[self.pos+1] as u64) << 48 +
-        (self.buf[self.pos+2] as u64) << 40 +
-        (self.buf[self.pos+3] as u64) << 32 +
-        (self.buf[self.pos+4] as u64) << 24 +
-        (self.buf[self.pos+5] as u64) << 16 +
-        (self.buf[self.pos+6] as u64) <<  8 +
-        (self.buf[self.pos+7] as u64)
+        ((self.buf[self.pos]   as u64) << 56) +
+        ((self.buf[self.pos+1] as u64) << 48) +
+        ((self.buf[self.pos+2] as u64) << 40) +
+        ((self.buf[self.pos+3] as u64) << 32) +
+        ((self.buf[self.pos+4] as u64) << 24) +
+        ((self.buf[self.pos+5] as u64) << 16) +
+        ((self.buf[self.pos+6] as u64) <<  8) +
+         (self.buf[self.pos+7] as u64)
     }
     #[inline]
     pub fn read_u64(&mut self) -> u64 {

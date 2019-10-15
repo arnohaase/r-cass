@@ -69,19 +69,15 @@ pub enum TableCellData<'a> {
     Regular(&'a[u8])
 }
 
+#[derive(Debug)]
 pub struct ColumnMetaData {
     pub name: String,
     pub id: Uuid,
-    pub key_type: ColumnKeyType,
     pub col_type: ColumnType,
 }
 
-pub enum ColumnKeyType {
-    PartitionKey,
-    ClusterKey,
-    Regular,
-}
 
+#[derive(Debug)]
 pub enum ColumnType {
     Text,      // UTF-8, with u32 as maximum length
     Uuid,
