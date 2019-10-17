@@ -13,37 +13,42 @@ use std::collections::HashMap;
 pub struct TableRow<'a> {
     meta_data: Arc<TableMetaData>,
 
-    pub partition_key: TableCellData<'a>,
+    pub partition_key: &'a[u8],
+    pub token: Token,
     pub details: RowDetails<'a>,
 }
 
 impl TableRow<'_> {
-    pub fn new<'a> (meta_data: Arc<TableMetaData>, partition_key: TableCellData<'a>, details: RowDetails<'a>) -> TableRow<'a> {
-
+    pub fn new<'a> (meta_data: Arc<TableMetaData>, partition_key: &'a[u8], details: RowDetails<'a>) -> TableRow<'a> {
         TableRow {
             meta_data,
             partition_key,
+            token: fasthash::murmur3::hash128(partition_key),
+            details
+        }
+    }
+
+    /// for rows read from the database via index so we know the token - now need to re-calculate it
+    pub fn new_with_known_token<'a> (meta_data: Arc<TableMetaData>, partition_key: &'a[u8], token: Token, details: RowDetails<'a>) -> TableRow<'a> {
+        TableRow {
+            meta_data,
+            partition_key,
+            token,
             details
         }
     }
 }
 
-//#[derive(Debug)]
-//enum KindOfMissing {
-//    NoSuchColumn,
-//    Tombstone,
-//}
-
 pub struct RegularRowData<'a> {
     pub pk_expiry: DbExpiryTimestamp,
 
     /// must be complete and in *key definition order*
-    pub cluster_key: Vec<TableCellData<'a>>,
+    pub cluster_key: Vec<&'a [u8]>,
     pub regular_cols: Vec<TableCell<'a>>,
 }
 
 pub struct KeyBound<'a> {
-    pub cluster_key_prefix: Vec<TableCellData<'a>>,
+    pub cluster_key_prefix: Vec<&'a [u8]>,
     pub is_inclusive: bool,
 }
 

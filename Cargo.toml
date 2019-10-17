@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["Arno Haase <arno.haase@haase-consulting.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+fasthash = "0.4"
+integer-encoding = "1.0"
 memmap = "0.7"
 uuid = {version = "0.7", features = ["v4"]}
