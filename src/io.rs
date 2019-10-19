@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Write, Seek, SeekFrom};
 use std::mem::size_of;
 use crate::util::*;
 use uuid::Uuid;
@@ -6,13 +6,17 @@ use std::intrinsics::transmute;
 use std::convert::TryInto;
 
 
-pub struct CassWrite<W> where W: Write {
+pub struct CassWrite<W> where W: Write+Seek {
     out: W
 }
 
-impl<W> CassWrite<W> where W: Write {
+impl<W> CassWrite<W> where W: Write+Seek {
     pub fn new(out: W) -> CassWrite<W> {
         CassWrite { out }
+    }
+
+    pub fn position(&mut self) -> std::io::Result<u64> {
+        self.out.seek(SeekFrom::Current(0))
     }
 
     #[inline]
