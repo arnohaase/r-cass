@@ -6,6 +6,14 @@ use std::intrinsics::transmute;
 use std::convert::TryInto;
 
 
+pub trait CassSerializer<T> {
+    fn ser<W>(out: &mut CassWrite<W>, o: &T) -> std::io::Result<()> where W: Write+Seek;
+}
+pub trait CassDeserializer<T> {
+    fn deser(r: &mut CassRead) -> T;
+}
+
+
 pub struct CassWrite<W> where W: Write+Seek {
     out: W
 }
