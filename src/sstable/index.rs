@@ -10,10 +10,13 @@ use std::marker::PhantomData;
 const ID_LEAF_NODE: u8 = 0;
 const ID_BRANCH_NODE: u8 = 1;
 
-pub struct IndexFileCreator<'a, K,V,W,SK>
-        where W: Write+Seek, K: Copy, SK: CassSerializer<K> {
+pub struct IndexFileCreator<K,V,W,SK,SV,SO>
+        where W: Write+Seek, K: Copy, SK: CassSerializer<K>, SV: CassSerializer<V>, SO: CassSerializer<u64> {
     state: IndexFileCreatorState<K,V>,
-    io: IndexFileCreatorIo<'a, K,SK,W>,
+    io: IndexFileCreatorIo<K,V,SK,SV,SO,W>,
+    _sk: PhantomData<SK>,
+    _sv: PhantomData<SV>,
+    _so: PhantomData<SO>,
 }
 
 struct IndexFileCreatorState<K,V> {
@@ -22,38 +25,46 @@ struct IndexFileCreatorState<K,V> {
     branch_stack: Vec<CreatorBranchNode<K>>, // current hierarchy of partially filled branches. Root goes first, deepest branch goes last
 }
 
-struct IndexFileCreatorIo<'a, K,SK,W> where W: Write+Seek, K: Copy, SK: CassSerializer<K> {
+struct IndexFileCreatorIo<K,V,SK,SV,SO,W> where W: Write+Seek, K: Copy,
+                                                SK: CassSerializer<K>, SV: CassSerializer<V>, SO: CassSerializer<u64> {
     out: CassWrite<W>,
-    ser_key: &'a SK,
-    _sk: PhantomData<K>,
+    _k: PhantomData<K>,
+    _v: PhantomData<V>,
+    _sk: PhantomData<SK>,
+    _sv: PhantomData<SV>,
+    _so: PhantomData<SO>,
 }
 
 //TODO K: Copy?!
 
-impl <'a, K,SK,W> IndexFileCreatorIo<'a, K,SK,W> where W: Write+Seek, K: Copy, SK: CassSerializer<K> {
+impl <K,V,SK,SV,SO,W> IndexFileCreatorIo<K,V,SK,SV,SO,W> where W: Write+Seek,
+                                                               K: Copy,
+                                                               SK: CassSerializer<K>,
+                                                               SV: CassSerializer<V>,
+                                                               SO: CassSerializer<u64>,
+{
     fn write_branch(&mut self, n: &CreatorBranchNode<K>) -> std::io::Result<(K, u64)> {
-        let result = out.position()?;
+        let result = self.out.position()?;
 
-        out.write_u8(ID_BRANCH_NODE)?;
-        out.write_u16(n.kvs.len() as u16)?;
+        self.out.write_u8(ID_BRANCH_NODE)?;
+        self.out.write_u16(n.kvs.len() as u16)?;
         for (k,v) in n.kvs.iter() {
-//            self.ser_key.ser(out, k)?;
-            //TODO out.write k --> adapter of some kind
-            out.write_u64(*v)?; //TODO adapter of some kind to support fixed vs var length, u32, ...?
+            SK::ser(&mut self.out, k)?;
+            SO::ser(&mut self.out, v);
         }
 
         let (k,v) = n.kvs.first().unwrap();
         Ok((*k, result))
     }
 
-    fn write_leaf(out: &mut CassWrite<W>, n: &CreatorLeafNode<K,V>) -> std::io::Result<(K, u64)> {
-        let result = out.position()?;
+    fn write_leaf(&mut self, n: &CreatorLeafNode<K,V>) -> std::io::Result<(K, u64)> {
+        let result = self.out.position()?;
 
-        out.write_u8(ID_LEAF_NODE)?;
-        out.write_u16(n.kvs.len() as u16)?;
+        self.out.write_u8(ID_LEAF_NODE)?;
+        self.out.write_u16(n.kvs.len() as u16)?;
         for (k,v) in n.kvs.iter() {
-            //TODO out.write k --> adapter of some kind
-            //TODO out.write v --> adapter of some kind
+            SK::ser(&mut self.out, k)?;
+            SV::ser(&mut self.out, v)?;
         }
 
         let (k,v) = n.kvs.first().unwrap();
@@ -62,8 +73,12 @@ impl <'a, K,SK,W> IndexFileCreatorIo<'a, K,SK,W> where W: Write+Seek, K: Copy, S
 
 }
 
-impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, SK: CassSerializer<K> {
-    pub fn new(arity: usize, out: W, ser_key: &'a SK) -> IndexFileCreator<K,V,W,SK> {
+impl <K,V,W,SK,SV,SO> IndexFileCreator<K,V,W,SK,SV,SO> where W:Write+Seek,
+                                                             K: Copy,
+                                                             SK: CassSerializer<K>,
+                                                             SV: CassSerializer<V>,
+                                                             SO: CassSerializer<u64>, {
+    pub fn new(arity: usize, out: W) -> IndexFileCreator<K,V,W,SK,SV,SO> {
         assert!(arity >= 2 && arity <= std::u16::MAX as usize);
         IndexFileCreator {
             state: IndexFileCreatorState {
@@ -73,9 +88,15 @@ impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, 
             },
             io: IndexFileCreatorIo {
                 out: CassWrite::new (out),
-                ser_key,
+                _k: PhantomData,
+                _v: PhantomData,
                 _sk: PhantomData,
-            }
+                _sv: PhantomData,
+                _so: PhantomData,
+            },
+            _sk: PhantomData,
+            _sv: PhantomData,
+            _so: PhantomData,
         }
     }
 
@@ -113,17 +134,17 @@ impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, 
                         return Ok(None)
                     },
                     Some(ref bn) => {
-                        vec!(IndexFileCreator::<K,V,W>::write_branch(&mut self.out, bn)?)
+                        vec!(self.io.write_branch(bn)?)
                     }
                 }
             },
             Some(ln) => {
-                vec!(IndexFileCreator::write_leaf(&mut self.out, ln)?)
+                vec!(self.io.write_leaf(ln)?)
             }
         };
 
         loop {
-            let mut cur_branch = self.branch_stack.pop();
+            let mut cur_branch = self.state.branch_stack.pop();
             match &mut cur_branch {
                 None => {
                     // we reached the top
@@ -138,17 +159,17 @@ impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, 
                                 level: 1, // not used here -> arbitrary value
                                 kvs: cur_children.clone()
                             };
-                            let (k,offs) = IndexFileCreator::<K,V,W>::write_branch(&mut self.out, &root)?;
+                            let (k,offs) = self.io.write_branch(&root)?;
                             return Ok(Some(offs))
                         }
                     }
                 },
                 Some(branch) => {
-                    while branch.kvs.len() < self.arity && !cur_children.is_empty() {
+                    while branch.kvs.len() < self.state.arity && !cur_children.is_empty() {
                         branch.kvs.push(cur_children.remove(0));
                     }
 
-                    let mut new_children = vec!(IndexFileCreator::<K,V,W>::write_branch(&mut self.out, branch)?);
+                    let mut new_children = vec!(self.io.write_branch(branch)?);
                     new_children.append(&mut cur_children);
                     cur_children = new_children;
                 },
@@ -157,15 +178,15 @@ impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, 
     }
 
     fn flush_leaf(&mut self) -> std::io::Result<()>{
-        let l = self.cur_leaf.as_ref();
+        let l = self.state.cur_leaf.as_ref();
 
         let (mut cur_child_key, mut cur_child_offset) = match l {
             None => {
                 return Ok(());
             },
             Some(ln) => {
-                let kv = IndexFileCreator::write_leaf(&mut self.out, ln)?;
-                self.cur_leaf = None;
+                let kv = self.io.write_leaf(ln)?;
+                self.state.cur_leaf = None;
                 kv
             }
         };
@@ -174,11 +195,11 @@ impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, 
 
         let mut cur_child_level: usize = 0;
         loop {
-            let mut cur_branch = self.branch_stack.last_mut();
+            let mut cur_branch = self.state.branch_stack.last_mut();
             match &mut cur_branch {
                 None => {
                     // hierarchy below here is full --> new branch node
-                    self.branch_stack.push(CreatorBranchNode {
+                    self.state.branch_stack.push(CreatorBranchNode {
                         level: cur_child_level+1,
                         kvs: vec!((cur_child_key, cur_child_offset))
                     });
@@ -186,13 +207,13 @@ impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, 
                 },
                 Some(branch) if branch.level != cur_child_level+1 => {
                     // hierarchy below here is full, no entry yet at this level --> new branch node
-                    self.branch_stack.push(CreatorBranchNode {
+                    self.state.branch_stack.push(CreatorBranchNode {
                         level: cur_child_level+1,
                         kvs: vec!((cur_child_key, cur_child_offset)),
                     });
                     break;
                 },
-                Some(branch) if branch.kvs.len() < self.arity => {
+                Some(branch) if branch.kvs.len() < self.state.arity => {
                     // branch node at this level exists but is not full yet -> add child to existing node
                     branch.kvs.push((cur_child_key, cur_child_offset));
                     break;
@@ -204,20 +225,20 @@ impl <'a, K,V,W,SK> IndexFileCreator<'a, K,V,W,SK> where W:Write+Seek, K: Copy, 
                     });
 
                     // branch node at this level exists but is full --> flush to disk, propagate up
-                    match IndexFileCreator::<K,V,W>::write_branch(&mut self.out, branch)? {
+                    match self.io.write_branch(branch)? {
                         (k,v) => {
                             cur_child_key = k;
                             cur_child_offset = v;
                         }
                     }
                     cur_child_level += 1;
-                    self.branch_stack.pop();
+                    self.state.branch_stack.pop();
                 }
             }
         }
 
         push_later.reverse();
-        self.branch_stack.append(&mut push_later);
+        self.state.branch_stack.append(&mut push_later);
 
         Ok(())
     }
