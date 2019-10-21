@@ -199,28 +199,32 @@ impl <K,V,W,SK,SV,SO> IndexFileCreator<K,V,W,SK,SV,SO> where W:Write+Seek,
                     kvs: vec!(*cur_child),
                 });
             },
-            Some(branch) if branch.level != cur_child_level+1 => {
-                // there is a gap in the hierarchy --> create missing node
-                assert!(branch.level > cur_child_level+1);
-                self.state.branch_stack.push(branch);
-                self.state.branch_stack.push(CreatorBranchNode {
-                    level: cur_child_level+1,
-                    kvs: vec!(*cur_child),
-                });
-            },
-            Some(branch) if branch.kvs.len() < self.state.arity => {
-                branch.kvs.push(*cur_child);
-            },
-            Some(branch) => {
-                // current branch node is full -> flush to disk
-                let flushed_node = self.io.write_branch(&branch)?;
-                self.bubble_up_rec(cur_child_level+1, &flushed_node)?;
+            Some(mut branch) => {
+                if branch.level != cur_child_level+1 {
+                    // there is a gap in the hierarchy --> create missing node
+                    assert!(branch.level > cur_child_level+1);
+                    self.state.branch_stack.push(branch);
+                    self.state.branch_stack.push(CreatorBranchNode {
+                        level: cur_child_level+1,
+                        kvs: vec!(*cur_child),
+                    });
+                }
+                else if branch.kvs.len() < self.state.arity {
+                    // there is room -> add to existing branch
+                    branch.kvs.push(*cur_child);
+                    self.state.branch_stack.push(branch);
+                }
+                else {
+                    // current branch node is full -> flush to disk
+                    let flushed_node = self.io.write_branch(&branch)?;
+                    self.bubble_up_rec(cur_child_level+1, &flushed_node)?;
 
-                // now we add a new branch node for the new child
-                self.state.branch_stack.push(CreatorBranchNode {
-                    level: cur_child_level+1,
-                    kvs: vec!(*cur_child),
-                });
+                    // now we add a new branch node for the new child
+                    self.state.branch_stack.push(CreatorBranchNode {
+                        level: cur_child_level+1,
+                        kvs: vec!(*cur_child),
+                    });
+                }
             }
         }
         Ok(())
