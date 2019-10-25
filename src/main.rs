@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{Result, BufReader, Read, ErrorKind, Seek, SeekFrom};
-use std::time::SystemTime;
+use std::time::{SystemTime, Instant};
 use memmap::MmapOptions;
 
 mod db;
@@ -52,36 +52,55 @@ fn seek() {
 
     do_timed("file    20", || seek_file(path, 20));
     do_timed("mapped  20", || seek_mapped(path, 20));
+    do_timed("file    20", || seek_file(path, 20));
+    do_timed("mapped  20", || seek_mapped(path, 20));
 
     do_timed("file   100", || seek_file(path, 100));
     do_timed("mapped 100", || seek_mapped(path, 100));
+    do_timed("file   100", || seek_file(path, 100));
+    do_timed("mapped 100", || seek_mapped(path, 100));
+
+    do_timed("file   1000", || seek_file(path, 1000));
+    do_timed("mapped 1000", || seek_mapped(path, 1000));
+    do_timed("file   1000", || seek_file(path, 1000));
+    do_timed("mapped 1000", || seek_mapped(path, 1000));
 }
 
 fn do_timed<F>(text: &str, f: F) where F: FnOnce() -> Result<u8> {
-    let start = SystemTime::now();
+    let start = Instant::now();
     let result = f();
-    let end = SystemTime::now();
-    println!("{}: {:?} in {:?}", text, result, end.duration_since(start).unwrap());
+    let end = Instant::now();
+    println!("{}: {:?} in {:?}", text, result, end.duration_since(start));
 }
 
 fn read() {
     println!("\nreading {}", PATH_SMALL);
     do_timed("tuned", || read_tuned(PATH_SMALL));
-//    do_timed("buffered", || read_buffered(PATH_SMALL));
     do_timed("mapped", || read_mapped(PATH_SMALL));
     do_timed("tuned", || read_tuned(PATH_SMALL));
-//    do_timed("buffered", || read_buffered(PATH_SMALL));
+    do_timed("mapped", || read_mapped(PATH_SMALL));
+    do_timed("tuned", || read_tuned(PATH_SMALL));
+    do_timed("mapped", || read_mapped(PATH_SMALL));
+    do_timed("tuned", || read_tuned(PATH_SMALL));
     do_timed("mapped", || read_mapped(PATH_SMALL));
 
     println!("\nreading {}", PATH_MEDIUM);
     do_timed("tuned", || read_tuned(PATH_MEDIUM));
-//    do_timed("buffered", || read_buffered(PATH_MEDIUM));
     do_timed("mapped", || read_mapped(PATH_MEDIUM));
     do_timed("tuned", || read_tuned(PATH_MEDIUM));
-//    do_timed("buffered", || read_buffered(PATH_MEDIUM));
+    do_timed("mapped", || read_mapped(PATH_MEDIUM));
+    do_timed("tuned", || read_tuned(PATH_MEDIUM));
+    do_timed("mapped", || read_mapped(PATH_MEDIUM));
+    do_timed("tuned", || read_tuned(PATH_MEDIUM));
     do_timed("mapped", || read_mapped(PATH_MEDIUM));
 
     println!("\nreading {}", PATH_HUGE);
+    do_timed("tuned", || read_tuned(PATH_HUGE));
+    do_timed("mapped", || read_tuned(PATH_HUGE));
+    do_timed("tuned", || read_tuned(PATH_HUGE));
+    do_timed("mapped", || read_tuned(PATH_HUGE));
+    do_timed("tuned", || read_tuned(PATH_HUGE));
+    do_timed("mapped", || read_tuned(PATH_HUGE));
     do_timed("tuned", || read_tuned(PATH_HUGE));
     do_timed("mapped", || read_tuned(PATH_HUGE));
 }
@@ -121,6 +140,13 @@ fn seek_mapped(path: &str, num_iter: usize) -> Result<u8> {
 
 
 fn read_tuned(path: &str) -> Result<u8> {
+    for _ in 0..2 {
+        _read_tuned(path)?;
+    }
+    Ok(0)
+}
+
+fn _read_tuned(path: &str) -> Result<u8> {
     let mut f = File::open(path)?;
 
     let mut buf = [0u8;65536];
@@ -169,11 +195,13 @@ fn read_mapped(path: &str) -> Result<u8> {
 
     let mut result = 0u8;
 
+    for _ in 0..2 {
     for idx in (0..m.len()).step_by(1024) {
         result = result.wrapping_add(m[idx]);
 //        if m[idx] == 3 || m[idx] > 250 {
 //            result = result.wrapping_add(m[idx]);
 //        }
+    }
     }
 
     Ok(result)

@@ -8,9 +8,17 @@ use std::convert::TryInto;
 
 pub trait CassSerializer<T> {
     fn ser<W>(out: &mut CassWrite<W>, o: &T) -> std::io::Result<()> where W: Write+Seek;
+
+    /// indicates whether a value is serialized to a fixed number of bytes, in which case it returns
+    /// that number of bytes
+    fn fixed_size() -> Option<usize>;
 }
 pub trait CassDeserializer<T> {
     fn deser(r: &mut CassRead) -> T;
+
+    /// indicates whether a value is serialized to a fixed number of bytes, in which case it returns
+    /// that number of bytes
+    fn fixed_size() -> Option<usize>;
 }
 
 

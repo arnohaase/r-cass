@@ -1,5 +1,5 @@
 
-use crate::io::{CassWrite, CassSerializer};
+use crate::io::{CassWrite, CassSerializer, CassRead, CassDeserializer};
 use std::io::{BufWriter, Write, Seek};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -14,9 +14,9 @@ pub struct IndexFileCreator<K,V,W,SK,SV,SO>
         where W: Write+Seek, K: Copy, SK: CassSerializer<K>, SV: CassSerializer<V>, SO: CassSerializer<u64> {
     state: IndexFileCreatorState<K,V>,
     io: IndexFileCreatorIo<K,V,SK,SV,SO,W>,
-    _sk: PhantomData<SK>,
-    _sv: PhantomData<SV>,
-    _so: PhantomData<SO>,
+    _sk: PhantomData<*const SK>,
+    _sv: PhantomData<*const SV>,
+    _so: PhantomData<*const SO>,
 }
 
 struct IndexFileCreatorState<K,V> {
@@ -28,11 +28,11 @@ struct IndexFileCreatorState<K,V> {
 struct IndexFileCreatorIo<K,V,SK,SV,SO,W> where W: Write+Seek, K: Copy,
                                                 SK: CassSerializer<K>, SV: CassSerializer<V>, SO: CassSerializer<u64> {
     out: CassWrite<W>,
-    _k: PhantomData<K>,
-    _v: PhantomData<V>,
-    _sk: PhantomData<SK>,
-    _sv: PhantomData<SV>,
-    _so: PhantomData<SO>,
+    _k: PhantomData<*const K>,
+    _v: PhantomData<*const V>,
+    _sk: PhantomData<*const SK>,
+    _sv: PhantomData<*const SV>,
+    _so: PhantomData<*const SO>,
 }
 
 impl <K,V,SK,SV,SO,W> IndexFileCreatorIo<K,V,SK,SV,SO,W> where W: Write+Seek,
@@ -41,6 +41,7 @@ impl <K,V,SK,SV,SO,W> IndexFileCreatorIo<K,V,SK,SV,SO,W> where W: Write+Seek,
                                                                SV: CassSerializer<V>,
                                                                SO: CassSerializer<u64>,
 {
+
     fn write_branch(&mut self, n: &CreatorBranchNode<K>) -> std::io::Result<(K, u64)> {
         let result = self.out.position()?;
 
@@ -237,4 +238,26 @@ struct CreatorLeafNode<K,V> {
 struct CreatorBranchNode<K> {
     level: usize,
     kvs: Vec<(K,u64)>,
+}
+
+
+pub struct IndexFileSearcher<'a,K,V,DK,DV,DO> where DK: CassDeserializer<K>, DV: CassDeserializer<V>, DO: CassDeserializer<u64> {
+    r: CassRead<'a>,
+    arity: usize,
+    root_offset: u64,
+    des_k: DK,
+    des_v: DV,
+    des_o: DO,
+    _k: PhantomData<*const K>,
+    _v: PhantomData<*const V>,
+}
+
+impl <'a,K,V,DK,DV,DO> IndexFileSearcher<'a,K,V,DK,DV,DO> where DK: CassDeserializer<K>, DV: CassDeserializer<V>, DO: CassDeserializer<u64> {
+    pub fn find_exact(self, key: K) -> Option<V> {
+
+
+
+
+        None//TODO
+    }
 }
